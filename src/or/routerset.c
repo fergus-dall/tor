@@ -193,7 +193,8 @@ routerset_len(const routerset_t *set)
  * from addr.) */
 STATIC int
 routerset_contains(const routerset_t *set, const tor_addr_t *addr,
-                   uint16_t orport, const tor_addr_t *addr2, uint16_t orport2,
+                   uint16_t orport,
+                   const tor_addr_t *ipv6_addr, uint16_t ipv6_orport,
                    const char *nickname, const char *id_digest,
                    country_t country)
 {
@@ -206,8 +207,8 @@ routerset_contains(const routerset_t *set, const tor_addr_t *addr,
   if (addr && compare_tor_addr_to_addr_policy(addr, orport, set->policies)
       == ADDR_POLICY_REJECTED)
     return 3;
-  if (addr2 && compare_tor_addr_to_addr_policy(addr2, orport2, set->policies)
-      == ADDR_POLICY_REJECTED)
+  if (ipv6_addr && compare_tor_addr_to_addr_policy(
+      ipv6_addr, ipv6_orport, set->policies) == ADDR_POLICY_REJECTED)
     return 3;
   if (set->countries) {
     if (country < 0 && addr)
