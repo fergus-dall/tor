@@ -770,13 +770,13 @@ NS(test_main)(void *arg)
   int contains;
   (void)arg;
 
-  contains = routerset_contains(set, NULL, 0, NULL, NULL, 0);
+  contains = routerset_contains(set, NULL, 0, NULL, 0, NULL, NULL, 0);
 
   tt_int_op(contains, OP_EQ, 0);
 
   set = tor_malloc_zero(sizeof(routerset_t));
   set->list = NULL;
-  contains = routerset_contains(set, NULL, 0, NULL, NULL, 0);
+  contains = routerset_contains(set, NULL, 0, NULL, 0, NULL, NULL, 0);
   tor_free(set);
   tt_int_op(contains, OP_EQ, 0);
 
@@ -800,7 +800,7 @@ NS(test_main)(void *arg)
   int contains;
   (void)arg;
 
-  contains = routerset_contains(set, NULL, 0, nickname, NULL, 0);
+  contains = routerset_contains(set, NULL, 0, NULL, 0, nickname, NULL, 0);
   routerset_free(set);
 
   tt_int_op(contains, OP_EQ, 0);
@@ -827,7 +827,7 @@ NS(test_main)(void *arg)
 
   nickname = "Foo";  /* This tests the lowercase comparison as well. */
   strmap_set_lc(set->names, nickname, (void *)1);
-  contains = routerset_contains(set, NULL, 0, nickname, NULL, 0);
+  contains = routerset_contains(set, NULL, 0, NULL, 0, nickname, NULL, 0);
   routerset_free(set);
 
   tt_int_op(contains, OP_EQ, 4);
@@ -851,7 +851,7 @@ NS(test_main)(void *arg)
   (void)arg;
 
   strmap_set_lc(set->names, "bar", (void *)1);
-  contains = routerset_contains(set, NULL, 0, "foo", NULL, 0);
+  contains = routerset_contains(set, NULL, 0, NULL, 0, "foo", NULL, 0);
   routerset_free(set);
 
   tt_int_op(contains, OP_EQ, 0);
@@ -876,7 +876,8 @@ NS(test_main)(void *arg)
   (void)arg;
 
   digestmap_set(set->digests, (const char*)foo, (void *)1);
-  contains = routerset_contains(set, NULL, 0, NULL, (const char*)foo, 0);
+  contains = routerset_contains(set, NULL, 0, NULL, 0, NULL,
+                                (const char*)foo, 0);
   routerset_free(set);
 
   tt_int_op(contains, OP_EQ, 4);
@@ -902,7 +903,8 @@ NS(test_main)(void *arg)
   (void)arg;
 
   digestmap_set(set->digests, (const char*)bar, (void *)1);
-  contains = routerset_contains(set, NULL, 0, NULL, (const char*)foo, 0);
+  contains = routerset_contains(set, NULL, 0, NULL, 0, NULL,
+                                (const char*)foo, 0);
   routerset_free(set);
 
   tt_int_op(contains, OP_EQ, 0);
@@ -927,7 +929,7 @@ NS(test_main)(void *arg)
   (void)arg;
 
   digestmap_set(set->digests, (const char*)bar, (void *)1);
-  contains = routerset_contains(set, NULL, 0, NULL, NULL, 0);
+  contains = routerset_contains(set, NULL, 0, NULL, 0, NULL, NULL, 0);
   routerset_free(set);
 
   tt_int_op(contains, OP_EQ, 0);
@@ -936,11 +938,11 @@ NS(test_main)(void *arg)
 }
 
 #undef NS_SUBMODULE
-#define NS_SUBMODULE ASPECT(routerset_contains, set_and_addr)
+#define NS_SUBMODULE ASPECT(routerset_contains, set_and_both_addr_yes)
 
 /*
  * Structural test for routerset_contains, when given a valid routerset
- * and the address is rejected by policy.
+ * and both addresses are rejected by policy.
  */
 
 NS_DECL(addr_policy_result_t, compare_tor_addr_to_addr_policy,
@@ -949,24 +951,30 @@ NS_DECL(addr_policy_result_t, compare_tor_addr_to_addr_policy,
 static tor_addr_t MOCK_TOR_ADDR;
 #define MOCK_TOR_ADDR_PTR (&MOCK_TOR_ADDR)
 
+static tor_addr_t MOCK_TOR_ADDR2;
+#define MOCK_TOR_ADDR_PTR2 (&MOCK_TOR_ADDR2)
+
 static void
 NS(test_main)(void *arg)
 {
   routerset_t *set = routerset_new();
   tor_addr_t *addr = MOCK_TOR_ADDR_PTR;
+  tor_addr_t *addr2 = MOCK_TOR_ADDR_PTR2;
   int contains;
   (void)arg;
 
   NS_MOCK(compare_tor_addr_to_addr_policy);
 
-  contains = routerset_contains(set, addr, 0, NULL, NULL, 0);
-  routerset_free(set);
-
+  contains = routerset_contains(set, addr, 0, addr2, 0, NULL, NULL, 0);
   tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 1);
   tt_int_op(contains, OP_EQ, 3);
 
+  contains = routerset_contains(set, addr2, 0, addr, 0, NULL, NULL, 0);
+  tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 2);
+  tt_int_op(contains, OP_EQ, 3);
+
   done:
-    ;
+  routerset_free(set);
 }
 
 addr_policy_result_t
@@ -976,19 +984,22 @@ NS(compare_tor_addr_to_addr_policy)(const tor_addr_t *addr, uint16_t port,
   (void)port;
   (void)policy;
   CALLED(compare_tor_addr_to_addr_policy)++;
-  tt_ptr_op(addr, OP_EQ, MOCK_TOR_ADDR_PTR);
-  return ADDR_POLICY_REJECTED;
+  if (addr == MOCK_TOR_ADDR_PTR || addr == MOCK_TOR_ADDR_PTR2) {
+    return ADDR_POLICY_REJECTED;
+  } else {
+    tt_abort();
+  }
 
   done:
     return 0;
 }
 
 #undef NS_SUBMODULE
-#define NS_SUBMODULE ASPECT(routerset_contains, set_and_no_addr)
+#define NS_SUBMODULE ASPECT(routerset_contains, set_and_both_addr_no)
 
 /*
  * Structural test for routerset_contains, when given a valid routerset
- * and the address is not rejected by policy.
+ * and both addresses are not rejected by policy.
  */
 
 NS_DECL(addr_policy_result_t, compare_tor_addr_to_addr_policy,
@@ -999,19 +1010,22 @@ NS(test_main)(void *arg)
 {
   routerset_t *set = routerset_new();
   tor_addr_t *addr = MOCK_TOR_ADDR_PTR;
+  tor_addr_t *addr2 = MOCK_TOR_ADDR_PTR2;
   int contains;
   (void)arg;
 
   NS_MOCK(compare_tor_addr_to_addr_policy);
 
-  contains = routerset_contains(set, addr, 0, NULL, NULL, 0);
-  routerset_free(set);
+  contains = routerset_contains(set, addr, 0, addr2, 0, NULL, NULL, 0);
+  tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 2);
+  tt_int_op(contains, OP_EQ, 0);
 
-  tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 1);
+  contains = routerset_contains(set, addr2, 0, addr, 0, NULL, NULL, 0);
+  tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 4);
   tt_int_op(contains, OP_EQ, 0);
 
   done:
-    ;
+  routerset_free(set);
 }
 
 addr_policy_result_t
@@ -1021,16 +1035,18 @@ NS(compare_tor_addr_to_addr_policy)(const tor_addr_t *addr, uint16_t port,
   (void)port;
   (void)policy;
   CALLED(compare_tor_addr_to_addr_policy)++;
-  tt_ptr_op(addr, OP_EQ, MOCK_TOR_ADDR_PTR);
-
-  return ADDR_POLICY_ACCEPTED;
+  if (addr == MOCK_TOR_ADDR_PTR || addr == MOCK_TOR_ADDR_PTR2) {
+    return ADDR_POLICY_ACCEPTED;
+  } else {
+    tt_abort();
+  }
 
   done:
       return 0;
 }
 
 #undef NS_SUBMODULE
-#define NS_SUBMODULE ASPECT(routerset_contains, set_and_null_addr)
+#define NS_SUBMODULE ASPECT(routerset_contains, set_and_both_addr_null)
 
 /*
  * Structural test for routerset_contains, when given a valid routerset
@@ -1049,7 +1065,7 @@ NS(test_main)(void *arg)
 
   NS_MOCK(compare_tor_addr_to_addr_policy);
 
-  contains = routerset_contains(set, NULL, 0, NULL, NULL, 0);
+  contains = routerset_contains(set, NULL, 0, NULL, 0, NULL, NULL, 0);
   routerset_free(set);
 
   tt_int_op(contains, OP_EQ, 0);
@@ -1065,8 +1081,157 @@ NS(compare_tor_addr_to_addr_policy)(const tor_addr_t *addr, uint16_t port,
   (void)port;
   (void)policy;
   CALLED(compare_tor_addr_to_addr_policy)++;
-  tt_ptr_op(addr, OP_EQ, MOCK_TOR_ADDR_PTR);
+  if (addr == MOCK_TOR_ADDR_PTR || addr == MOCK_TOR_ADDR_PTR2) {
+    return ADDR_POLICY_ACCEPTED;
+  } else {
+    tt_abort();
+  }
 
+  done:
+    return 0;
+}
+
+#undef NS_SUBMODULE
+#define NS_SUBMODULE ASPECT(routerset_contains, set_and_addr_yes_and_no)
+
+/*
+ * Structural test for routerset_contains, when given a valid routerset
+ * and one of the addresses is rejected by policy.
+ */
+
+NS_DECL(addr_policy_result_t, compare_tor_addr_to_addr_policy,
+    (const tor_addr_t *addr, uint16_t port, const smartlist_t *policy));
+
+static void
+NS(test_main)(void *arg)
+{
+  routerset_t *set = routerset_new();
+  tor_addr_t *addr = MOCK_TOR_ADDR_PTR;
+  tor_addr_t *addr2 = MOCK_TOR_ADDR_PTR2;
+  int contains;
+  (void)arg;
+
+  NS_MOCK(compare_tor_addr_to_addr_policy);
+
+  contains = routerset_contains(set, addr, 0, addr2, 0, NULL, NULL, 0);
+  tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 1);
+  tt_int_op(contains, OP_EQ, 3);
+
+  contains = routerset_contains(set, addr2, 0, addr, 0, NULL, NULL, 0);
+  tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 3);
+  tt_int_op(contains, OP_EQ, 3);
+
+  done:
+  routerset_free(set);
+}
+
+addr_policy_result_t
+NS(compare_tor_addr_to_addr_policy)(const tor_addr_t *addr, uint16_t port,
+    const smartlist_t *policy)
+{
+  (void)port;
+  (void)policy;
+  CALLED(compare_tor_addr_to_addr_policy)++;
+  if (addr == MOCK_TOR_ADDR_PTR) {
+    return ADDR_POLICY_REJECTED;
+  } else if (addr == MOCK_TOR_ADDR_PTR2) {
+      return ADDR_POLICY_ACCEPTED;
+  } else {
+    tt_abort();
+  }
+
+  done:
+    return 0;
+}
+
+#undef NS_SUBMODULE
+#define NS_SUBMODULE ASPECT(routerset_contains, set_and_addr_yes_and_null)
+
+/*
+ * Structural test for routerset_contains, when given a valid routerset
+ * and one of the addresses is rejected by policy and the other is NULL.
+ */
+
+NS_DECL(addr_policy_result_t, compare_tor_addr_to_addr_policy,
+    (const tor_addr_t *addr, uint16_t port, const smartlist_t *policy));
+
+static void
+NS(test_main)(void *arg)
+{
+  routerset_t *set = routerset_new();
+  tor_addr_t *addr = MOCK_TOR_ADDR_PTR;
+  int contains;
+  (void)arg;
+
+  NS_MOCK(compare_tor_addr_to_addr_policy);
+
+  contains = routerset_contains(set, addr, 0, NULL, 0, NULL, NULL, 0);
+  tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 1);
+  tt_int_op(contains, OP_EQ, 3);
+
+  contains = routerset_contains(set, NULL, 0, addr, 0, NULL, NULL, 0);
+  tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 2);
+  tt_int_op(contains, OP_EQ, 3);
+
+  done:
+  routerset_free(set);
+}
+
+addr_policy_result_t
+NS(compare_tor_addr_to_addr_policy)(const tor_addr_t *addr, uint16_t port,
+    const smartlist_t *policy)
+{
+  (void)port;
+  (void)policy;
+  CALLED(compare_tor_addr_to_addr_policy)++;
+  tt_ptr_op(addr, OP_EQ, MOCK_TOR_ADDR_PTR);
+  return ADDR_POLICY_REJECTED;
+
+  done:
+    return 0;
+}
+
+#undef NS_SUBMODULE
+#define NS_SUBMODULE ASPECT(routerset_contains, set_and_addr_no_and_null)
+
+/*
+ * Structural test for routerset_contains, when given a valid routerset
+ * and one of the addresses is not rejected by policy and the other is NULL.
+ */
+
+NS_DECL(addr_policy_result_t, compare_tor_addr_to_addr_policy,
+    (const tor_addr_t *addr, uint16_t port, const smartlist_t *policy));
+
+static void
+NS(test_main)(void *arg)
+{
+  routerset_t *set = routerset_new();
+  tor_addr_t *addr = MOCK_TOR_ADDR_PTR;
+  int contains;
+  (void)arg;
+
+  NS_MOCK(compare_tor_addr_to_addr_policy);
+
+  contains = routerset_contains(set, addr, 0, NULL, 0, NULL, NULL, 0);
+  tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 1);
+  tt_int_op(contains, OP_EQ, 0);
+
+  contains = routerset_contains(set, NULL, 0, addr, 0, NULL, NULL, 0);
+  tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 2);
+  tt_int_op(contains, OP_EQ, 0);
+
+  done:
+  routerset_free(set);
+}
+
+addr_policy_result_t
+NS(compare_tor_addr_to_addr_policy)(const tor_addr_t *addr, uint16_t port,
+    const smartlist_t *policy)
+{
+  (void)port;
+  (void)policy;
+  CALLED(compare_tor_addr_to_addr_policy)++;
+  tt_ptr_op(addr, OP_EQ, MOCK_TOR_ADDR_PTR);
   return ADDR_POLICY_ACCEPTED;
 
   done:
@@ -1097,7 +1262,8 @@ NS(test_main)(void *arg)
 
   set->countries = bitarray_init_zero(1);
   bitarray_set(set->countries, 1);
-  contains = routerset_contains(set, MOCK_TOR_ADDR_PTR, 0, NULL, NULL, -1);
+  contains = routerset_contains(set, MOCK_TOR_ADDR_PTR, 0,
+                                NULL, 0, NULL, NULL, -1);
   routerset_free(set);
 
   tt_int_op(contains, OP_EQ, 0);
@@ -1156,7 +1322,8 @@ NS(test_main)(void *arg)
   set->n_countries = 2;
   set->countries = bitarray_init_zero(1);
   bitarray_set(set->countries, 1);
-  contains = routerset_contains(set, MOCK_TOR_ADDR_PTR, 0, NULL, NULL, -1);
+  contains = routerset_contains(set, MOCK_TOR_ADDR_PTR, 0,
+                                NULL, 0, NULL, NULL, -1);
   routerset_free(set);
 
   tt_int_op(contains, OP_EQ, 2);
@@ -2172,9 +2339,12 @@ struct testcase_t routerset_tests[] = {
   TEST_CASE_ASPECT(routerset_contains, set_and_digest),
   TEST_CASE_ASPECT(routerset_contains, set_and_no_digest),
   TEST_CASE_ASPECT(routerset_contains, set_and_null_digest),
-  TEST_CASE_ASPECT(routerset_contains, set_and_addr),
-  TEST_CASE_ASPECT(routerset_contains, set_and_no_addr),
-  TEST_CASE_ASPECT(routerset_contains, set_and_null_addr),
+  TEST_CASE_ASPECT(routerset_contains, set_and_both_addr_yes),
+  TEST_CASE_ASPECT(routerset_contains, set_and_both_addr_no),
+  TEST_CASE_ASPECT(routerset_contains, set_and_both_addr_null),
+  TEST_CASE_ASPECT(routerset_contains, set_and_addr_yes_and_no),
+  TEST_CASE_ASPECT(routerset_contains, set_and_addr_yes_and_null),
+  TEST_CASE_ASPECT(routerset_contains, set_and_addr_no_and_null),
   TEST_CASE_ASPECT(routerset_contains, countries_no_geoip),
   TEST_CASE_ASPECT(routerset_contains, countries_geoip),
   TEST_CASE_ASPECT(routerset_add_unknown_ccs, only_flag_and_no_ccs),
