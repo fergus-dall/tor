@@ -43,7 +43,7 @@ int routerset_len(const routerset_t *set);
 #ifdef ROUTERSET_PRIVATE
 STATIC char * routerset_get_countryname(const char *c);
 STATIC int routerset_contains(const routerset_t *set, const tor_addr_t *addr,
-                   uint16_t orport,
+                   uint16_t orport, const tor_addr_t *addr2, uint16_t orport2,
                    const char *nickname, const char *id_digest,
                    country_t country);
 
