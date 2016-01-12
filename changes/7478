@@ -1,0 +1,3 @@
+  o Minor Feature:
+    - Allow routersets to include/exclude nodes by IPv6
+      addresses. Implements ticket 7478.

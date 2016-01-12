@@ -200,7 +200,7 @@ routerset_len(const routerset_t *set)
  * from addr.) */
 STATIC int
 routerset_contains(const routerset_t *set, const tor_addr_t *addr,
-                   uint16_t orport,
+                   uint16_t orport, const tor_addr_t *addr2, uint16_t orport2,
                    const char *nickname, const char *id_digest,
                    country_t country)
 {
@@ -211,6 +211,9 @@ routerset_contains(const routerset_t *set, const tor_addr_t *addr,
   if (id_digest && digestmap_get(set->digests, id_digest))
     return 4;
   if (addr && compare_tor_addr_to_addr_policy(addr, orport, set->policies)
+      == ADDR_POLICY_REJECTED)
+    return 3;
+  if (addr2 && compare_tor_addr_to_addr_policy(addr2, orport2, set->policies)
       == ADDR_POLICY_REJECTED)
     return 3;
   if (set->countries) {
@@ -270,6 +273,7 @@ routerset_contains_extendinfo(const routerset_t *set, const extend_info_t *ei)
   return routerset_contains(set,
                             &ei->addr,
                             ei->port,
+                            NULL, 0,
                             ei->nickname,
                             ei->identity_digest,
                             -1 /*country*/);
@@ -282,10 +286,14 @@ routerset_contains_router(const routerset_t *set, const routerinfo_t *ri,
                           country_t country)
 {
   tor_addr_t addr;
+  const tor_addr_t *ipv6_addr;
   tor_addr_from_ipv4h(&addr, ri->addr);
+  ipv6_addr = &(ri->ipv6_addr);
   return routerset_contains(set,
-                            &addr,
+                            tor_addr_is_null(&addr) ? NULL : &addr,
                             ri->or_port,
+                            tor_addr_is_null(ipv6_addr) ? NULL : ipv6_addr,
+                            ri->ipv6_orport,
                             ri->nickname,
                             ri->cache_info.identity_digest,
                             country);
@@ -299,10 +307,14 @@ routerset_contains_routerstatus(const routerset_t *set,
                                 country_t country)
 {
   tor_addr_t addr;
+  const tor_addr_t *ipv6_addr;
   tor_addr_from_ipv4h(&addr, rs->addr);
+  ipv6_addr = &(rs->ipv6_addr);
   return routerset_contains(set,
-                            &addr,
+                            tor_addr_is_null(&addr) ? NULL : &addr,
                             rs->or_port,
+                            tor_addr_is_null(ipv6_addr) ? NULL : ipv6_addr,
+                            rs->ipv6_orport,
                             rs->nickname,
                             rs->identity_digest,
                             country);
