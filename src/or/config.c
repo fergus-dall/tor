@@ -225,6 +225,7 @@ static config_var_t option_vars_[] = {
   VAR("DirReqStatistics",        BOOL,     DirReqStatistics_option, "1"),
   VAR("DirAuthority",            LINELIST, DirAuthorities, NULL),
   V(DirCache,                    BOOL,     "1"),
+  V(CacheNConsensuses,           UINT,     "8"),
   V(DirAuthorityFallbackRate,    DOUBLE,   "1.0"),
   V(DisableAllSwap,              BOOL,     "0"),
   V(DisableDebuggerAttachment,   BOOL,     "1"),

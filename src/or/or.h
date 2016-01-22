@@ -3982,6 +3982,10 @@ typedef struct {
                  * tunnelled dir conns from clients. If 1, enabled (default);
                  * If 0, disabled. */
 
+  int CacheNConsensuses; /**< How many past consensus documents should
+                          * we cache to provide diffs from? (default
+                          * 8)*/
+
   char *VirtualAddrNetworkIPv4; /**< Address and mask to hand out for virtual
                                  * MAPADDRESS requests for IPv4 addresses */
   char *VirtualAddrNetworkIPv6; /**< Address and mask to hand out for virtual

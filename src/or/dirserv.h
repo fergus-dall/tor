@@ -66,6 +66,8 @@ void dirserv_set_cached_consensus_networkstatus(const char *consensus,
                                               const char *flavor_name,
                                               const common_digests_t *digests,
                                               time_t published);
+cached_dir_t *dirserv_make_diff(cached_dir_t *old, cached_dir_t *new,
+                                time_t published);
 void dirserv_clear_old_networkstatuses(time_t cutoff);
 int dirserv_get_routerdesc_fingerprints(smartlist_t *fps_out, const char *key,
                                         const char **msg,

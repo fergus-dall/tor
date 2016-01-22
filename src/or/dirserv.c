@@ -14,6 +14,7 @@
 #include "connection.h"
 #include "connection_or.h"
 #include "control.h"
+#include "diff.h"
 #include "directory.h"
 #include "dirserv.h"
 #include "dirvote.h"
@@ -1175,6 +1176,11 @@ directory_too_idle_to_fetch_descriptors(const or_options_t *options,
  * currently serving. */
 static strmap_t *cached_consensuses = NULL;
 
+/** Map from SHA256 for an old v3 consensuses to the cached_dir_t for
+ * the diff from the old consensuses to the one that we're currently
+ * serving. */
+static digest256map_t *cached_diffs = NULL;
+
 /** Decrement the reference count on <b>d</b>, and free it if it no longer has
  * any references. */
 void
@@ -1235,15 +1241,50 @@ dirserv_set_cached_consensus_networkstatus(const char *networkstatus,
 {
   cached_dir_t *new_networkstatus;
   cached_dir_t *old_networkstatus;
+  smartlist_t *cached;
   if (!cached_consensuses)
     cached_consensuses = strmap_new();
+  if (!cached_diffs)
+    cached_diffs = digest256map_new();
+  if (!strmap_get(cached_consensuses, flavor_name))
+    strmap_set(cached_consensuses, flavor_name, smartlist_new());
 
   new_networkstatus = new_cached_dir(tor_strdup(networkstatus), published);
   memcpy(&new_networkstatus->digests, digests, sizeof(common_digests_t));
-  old_networkstatus = strmap_set(cached_consensuses, flavor_name,
-                                 new_networkstatus);
-  if (old_networkstatus)
+  cached = strmap_get(cached_consensuses, flavor_name);
+  smartlist_insert(cached, 0, new_networkstatus);
+  if (smartlist_len(cached) > get_options()->CacheNConsensuses &&
+      smartlist_len(cached) > 1) {
+    cached_dir_t *old_diff;
+    old_networkstatus = smartlist_pop_last(cached);
+    old_diff = digest256map_remove(cached_diffs,
+                       (uint8_t *)old_networkstatus->digests.d[DIGEST_SHA256]);
+    cached_dir_decref(old_diff);
     cached_dir_decref(old_networkstatus);
+  }
+
+  SMARTLIST_FOREACH_BEGIN(cached, cached_dir_t *, stat) {
+    cached_dir_t *diff = dirserv_make_diff(stat, new_networkstatus, published);
+    cached_dir_decref(digest256map_set(cached_diffs,
+                        (uint8_t *)stat->digests.d[DIGEST_SHA256], diff));
+  } SMARTLIST_FOREACH_END(stat);
+}
+
+cached_dir_t *
+dirserv_make_diff(cached_dir_t *old, cached_dir_t *new,
+                                time_t published)
+{
+  char *diff, *full = NULL;
+  char old_digest[HEX_DIGEST256_LEN+1], new_digest[HEX_DIGEST256_LEN+1];
+  base16_encode(old_digest, HEX_DIGEST256_LEN+1,
+                old->digests.d[DIGEST_SHA256], DIGEST256_LEN);
+  base16_encode(new_digest, HEX_DIGEST256_LEN+1,
+                new->digests.d[DIGEST_SHA256], DIGEST256_LEN);
+  diff = make_diff(old->dir, new->dir);
+  tor_asprintf(&full, "network-status-diff-version 1\n"
+                      "hash %s %s\n%s", old_digest, new_digest, diff);
+  tor_free(diff);
+  return new_cached_dir(full, published);
 }
 
 /** Return the latest downloaded consensus networkstatus in encoded, signed,
@@ -1253,7 +1294,10 @@ dirserv_get_consensus(const char *flavor_name)
 {
   if (!cached_consensuses)
     return NULL;
-  return strmap_get(cached_consensuses, flavor_name);
+  smartlist_t *sl = strmap_get(cached_consensuses, flavor_name);
+  if (sl)
+    return smartlist_get(sl, 0);
+  return NULL;
 }
 
 /** If a router's uptime is at least this value, then it is always
@@ -3285,14 +3329,17 @@ dirserv_test_reachability(time_t now)
 static cached_dir_t *
 lookup_cached_dir_by_fp(const char *fp)
 {
-  cached_dir_t *d = NULL;
   if (tor_digest_is_zero(fp) && cached_consensuses) {
-    d = strmap_get(cached_consensuses, "ns");
-  } else if (memchr(fp, '\0', DIGEST_LEN) && cached_consensuses &&
-           (d = strmap_get(cached_consensuses, fp))) {
+    smartlist_t *sl = strmap_get(cached_consensuses, "ns");
+    if (sl)
+      return smartlist_get(sl, 0);
+  } else if (memchr(fp, '\0', DIGEST_LEN) && cached_consensuses) {
+    smartlist_t *sl = strmap_get(cached_consensuses, fp);
+    if (sl)
+      return smartlist_get(sl, 0);
     /* this here interface is a nasty hack XXXX024 */;
   }
-  return d;
+  return NULL;
 }
 
 /** Remove from <b>fps</b> every networkstatus key where both
@@ -3760,14 +3807,29 @@ validate_recommended_package_line(const char *line)
   return 1;
 }
 
+void smartlist_free_(void *sl);
+void
+smartlist_free_(void *sl)
+{
+  smartlist_free(sl);
+}
+
 /** Release all storage used by the directory server. */
 void
 dirserv_free_all(void)
 {
   dirserv_free_fingerprint_list();
 
-  strmap_free(cached_consensuses, free_cached_dir_);
-  cached_consensuses = NULL;
+  if (cached_consensuses) {
+    STRMAP_FOREACH(cached_consensuses, key, smartlist_t*, sl)
+      SMARTLIST_FOREACH(sl, cached_dir_t *, dir, free_cached_dir_(dir));
+    STRMAP_FOREACH_END
+    strmap_free(cached_consensuses, smartlist_free_);
+    cached_consensuses = NULL;
+  }
+
+  digest256map_free(cached_diffs, free_cached_dir_);
+  cached_diffs = NULL;
 
   dirserv_clear_measured_bw_cache();
 }
