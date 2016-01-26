@@ -2974,6 +2974,11 @@ directory_handle_command_get(dir_connection_t *conn, const char *headers,
       }
     }
 
+    int diff = 0;
+    if ((header = http_get_header(headers, "X-Or-Diff-From-Consensus: "))) {
+        smartlist_add(dir_fps, tor_strdup(header));
+        diff = 1;
+    }
     // note_request(request_type,dlen);
     (void) request_type;
     write_http_response_header(conn, -1, compressed,
@@ -2983,7 +2988,8 @@ directory_handle_command_get(dir_connection_t *conn, const char *headers,
       conn->zlib_state = tor_zlib_new(0, ZLIB_METHOD, HIGH_COMPRESSION);
 
     /* Prime the connection with some data. */
-    conn->dir_spool_src = DIR_SPOOL_NETWORKSTATUS;
+    conn->dir_spool_src = diff ? DIR_SPOOL_NETWORKSTATUS_DIFF :
+                                 DIR_SPOOL_NETWORKSTATUS;
     connection_dirserv_flushed_some(conn);
     goto done;
   }

@@ -3703,6 +3703,81 @@ connection_dirserv_add_networkstatus_bytes_to_outbuf(dir_connection_t *conn)
   return 0;
 }
 
+/** Spooling helper: Called when we're spooling networkstatus diffs on
+ * <b>conn</b>, and the outbuf has become too empty.  If the current
+ * diff (in <b>conn</b>-\>cached_dir) has more data, pull data from
+ * there.  Otherwise, pop the next two objects from fingerprint_stack,
+ * the digest and flavor of the networkstatus the diff is based on,
+ * and start spooling the next diff. (If no network status matches the
+ * digest and flavor, start spooling the most recent full
+ * networkstatus of the correct flavor.) If we run out of entries,
+ * flushes the zlib state and sets the spool source to NONE.  Returns
+ * 0 on success, negative on failure. */
+static int
+connection_dirserv_add_ns_diff_bytes_to_outbuf(dir_connection_t *conn)
+{
+  while (connection_get_outbuf_len(TO_CONN(conn)) < DIRSERV_BUFFER_MIN) {
+    if (conn->cached_dir) {
+      int uncompressing = (conn->zlib_state != NULL);
+      int r = connection_dirserv_add_dir_bytes_to_outbuf(conn);
+      if (conn->dir_spool_src == DIR_SPOOL_NONE) {
+        /* add_dir_bytes thinks we're done with the cached_dir.  But we
+         * may have more cached_dirs! */
+        conn->dir_spool_src = DIR_SPOOL_NETWORKSTATUS_DIFF;
+        /* This bit is tricky.  If we were uncompressing the last
+         * networkstatus diff, we may need to make a new zlib object to
+         * uncompress the next one. */
+        if (uncompressing && ! conn->zlib_state &&
+            conn->fingerprint_stack &&
+            smartlist_len(conn->fingerprint_stack)) {
+          conn->zlib_state = tor_zlib_new(0, ZLIB_METHOD, HIGH_COMPRESSION);
+        }
+      }
+      if (r) return r;
+    } else if (conn->fingerprint_stack &&
+               smartlist_len(conn->fingerprint_stack)) {
+      /* Add another networkstatus diff; start serving it. */
+      uint8_t digest[DIGEST256_LEN];
+      char *fp = smartlist_pop_last(conn->fingerprint_stack);
+      char *flavor = smartlist_pop_last(conn->fingerprint_stack);
+      base16_decode((char *)digest, DIGEST256_LEN, fp, strlen(fp));
+      tor_free(fp);
+
+      /* Check that there is actually a networkstatus with the correct
+       * digest and flavor to serve a diff from */
+      int match = 0;
+      smartlist_t *sl = strmap_get(cached_consensuses, flavor);
+      if (sl) {
+        SMARTLIST_FOREACH_BEGIN(sl, cached_dir_t *, ns) {
+          if (!memcmp(ns->digests.d[DIGEST_SHA256], digest, DIGEST256_LEN)) {
+            match = 1;
+          }
+        } SMARTLIST_FOREACH_END(ns);
+      }
+
+      cached_dir_t *d;
+      if (match) {
+        d = digest256map_get(cached_diffs, digest);
+      } else {
+        /* If no match exists, serve a copy of the whole consensus */
+        d = lookup_cached_dir_by_fp(flavor);
+      }
+      if (d) {
+        ++d->refcnt;
+        conn->cached_dir = d;
+        conn->cached_dir_offset = 0;
+        tor_free(flavor);
+      }
+    } else {
+      connection_dirserv_finish_spooling(conn);
+      smartlist_free(conn->fingerprint_stack);
+      conn->fingerprint_stack = NULL;
+      return 0;
+    }
+  }
+  return 0;
+}
+
 /** Called whenever we have flushed some directory data in state
  * SERVER_WRITING. */
 int
@@ -3725,6 +3800,8 @@ connection_dirserv_flushed_some(dir_connection_t *conn)
       return connection_dirserv_add_dir_bytes_to_outbuf(conn);
     case DIR_SPOOL_NETWORKSTATUS:
       return connection_dirserv_add_networkstatus_bytes_to_outbuf(conn);
+    case DIR_SPOOL_NETWORKSTATUS_DIFF:
+      return connection_dirserv_add_ns_diff_bytes_to_outbuf(conn);
     case DIR_SPOOL_NONE:
     default:
       return 0;
