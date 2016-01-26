@@ -1142,6 +1142,7 @@ extern struct testcase_t container_tests[];
 extern struct testcase_t controller_tests[];
 extern struct testcase_t controller_event_tests[];
 extern struct testcase_t crypto_tests[];
+extern struct testcase_t diff_tests[];
 extern struct testcase_t dir_tests[];
 extern struct testcase_t dir_handle_get_tests[];
 extern struct testcase_t entryconn_tests[];
@@ -1198,6 +1199,7 @@ struct testgroup_t testgroups[] = {
   { "control/", controller_tests },
   { "control/event/", controller_event_tests },
   { "crypto/", crypto_tests },
+  { "diff/", diff_tests },
   { "dir/", dir_tests },
   { "dir_handle_get/", dir_handle_get_tests },
   { "dir/md/", microdesc_tests },
