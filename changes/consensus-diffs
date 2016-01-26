@@ -1,0 +1,4 @@
+  o Major feature:
+    - Implement consensus diffs. Clients will now attempt to fetch a
+      diff from the most recent consensus they have, instead of
+      downloading the whole thing every time.
