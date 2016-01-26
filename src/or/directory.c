@@ -11,6 +11,7 @@
 #include "connection.h"
 #include "connection_edge.h"
 #include "control.h"
+#include "diff.h"
 #include "directory.h"
 #include "dirserv.h"
 #include "dirvote.h"
@@ -1393,6 +1394,27 @@ directory_send_command(dir_connection_t *conn,
       tor_assert(!payload);
       httpcommand = "GET";
       url = directory_get_consensus_url(resource);
+      int flav = FLAV_NS;
+      char digest[HEX_DIGEST256_LEN+1];
+      if (resource)
+          flav = networkstatus_parse_flavor_name(resource);
+
+      networkstatus_t *ns = NULL;
+      cached_dir_t *cd = NULL;
+      if (flav != -1) {
+        ns = networkstatus_get_latest_consensus_by_flavor(flav);
+        if (ns)
+          base16_encode(digest, HEX_DIGEST256_LEN+1,
+                        ns->digests.d[DIGEST_SHA256], DIGEST256_LEN);
+      } else {
+        cd = dirserv_get_consensus(resource);
+        if (cd)
+          base16_encode(digest, HEX_DIGEST256_LEN+1,
+                        cd->digests.d[DIGEST_SHA256], DIGEST256_LEN);
+      }
+      if (ns || cd)
+        smartlist_add_asprintf(headers,
+                               "X-Or-Diff-From-Consensus: %s\r\n", digest);
       log_info(LD_DIR, "Downloading consensus from %s using %s",
                hoststring, url);
       break;
@@ -1952,14 +1974,104 @@ connection_dir_client_reached_eof(dir_connection_t *conn)
     }
     log_info(LD_DIR,"Received consensus directory (size %d) from server "
              "'%s:%d'", (int)body_len, conn->base_.address, conn->base_.port);
-    if ((r=networkstatus_set_current_consensus(body, flavname, 0))<0) {
-      log_fn(r<-1?LOG_WARN:LOG_INFO, LD_DIR,
-             "Unable to load %s consensus directory downloaded from "
-             "server '%s:%d'. I'll try again soon.",
-             flavname, conn->base_.address, conn->base_.port);
-      tor_free(body); tor_free(headers); tor_free(reason);
-      networkstatus_consensus_download_failed(0, flavname);
-      return -1;
+
+    if(!strcmpstart(body, "network-status-diff-version")) {
+      int version = 0;
+      char *hex_base_digest, base_digest[DIGEST256_LEN];
+      char *hex_new_digest, new_digest[DIGEST256_LEN];
+      char *old_consensus;
+      char *new_consensus;
+      char *diff;
+      char *saveptr = NULL;
+      common_digests_t *old_digests;
+      common_digests_t new_digests;
+
+      tor_strtok_r(body, " \n", &saveptr); /* network-status-diff-version */
+      version = strtol(tor_strtok_r(NULL, " \n", &saveptr), NULL, 10);
+      if(version != 1) {
+        log_warn(LD_DIR, "Unrecognised consensus diff format recived (%d)",
+                 version);
+        tor_free(body); tor_free(headers); tor_free(reason);
+        return -1;
+      }
+      tor_strtok_r(NULL, " \n", &saveptr); /* hash */
+      hex_base_digest = tor_strtok_r(NULL, " \n", &saveptr);
+      hex_new_digest = tor_strtok_r(NULL, " \n", &saveptr);
+      diff = tor_strtok_r(NULL, "", &saveptr);
+
+      base16_decode(base_digest, DIGEST256_LEN,
+                    hex_base_digest, HEX_DIGEST256_LEN);
+      base16_decode(new_digest, DIGEST256_LEN,
+                    hex_new_digest, HEX_DIGEST256_LEN);
+
+      cached_dir_t *c = dirserv_get_consensus(flavname);
+      if (c) {
+        old_consensus = tor_strdup(c->dir);
+        old_digests = &c->digests;
+      } else {
+        char *consensus_fname;
+        if (!strcmp(flavname, "ns")) {
+          consensus_fname = get_datadir_fname("cached-consensus");
+        } else {
+          char *buf = NULL;
+          tor_asprintf(&buf, "cached-%s-consensus", flavname);
+          consensus_fname = get_datadir_fname(buf);
+          tor_free(buf);
+        }
+        old_consensus = read_file_to_str(consensus_fname, 0, NULL);
+        tor_free(consensus_fname);
+        if (!old_consensus) {
+          tor_free(body); tor_free(headers); tor_free(reason);
+          return -1;
+        }
+
+        int flav = networkstatus_parse_flavor_name(flavname);
+        networkstatus_t *ns;
+
+        ns = networkstatus_get_latest_consensus_by_flavor(flav);
+        old_digests = &ns->digests;
+      }
+
+      if (memcmp(old_digests->d[DIGEST_SHA256], base_digest, DIGEST256_LEN)) {
+        log_warn(LD_DIR, "Consensus diff isn't based on the expected consensus");
+        tor_free(old_consensus);
+        tor_free(body); tor_free(headers); tor_free(reason);
+        return -1;
+      }
+
+      new_consensus = apply_patch(old_consensus, diff);
+      router_get_networkstatus_v3_hashes(new_consensus, &new_digests);
+      if (memcmp(new_digests.d[DIGEST_SHA256], new_digest, DIGEST256_LEN)) {
+        log_warn(LD_DIR, "Applying consensus diff doesnt result i"
+                         "the expected consensus");
+        tor_free(old_consensus);
+        tor_free(new_consensus);
+        tor_free(body); tor_free(headers); tor_free(reason);
+        return -1;
+      }
+      if ((r=networkstatus_set_current_consensus(new_consensus, flavname, 0))<0) {
+        log_fn(r<-1?LOG_WARN:LOG_INFO, LD_DIR,
+               "Unable to load %s consensus directory downloaded from "
+               "server '%s:%d'. I'll try again soon.",
+               flavname, conn->base_.address, conn->base_.port);
+        tor_free(old_consensus);
+        tor_free(new_consensus);
+        tor_free(body); tor_free(headers); tor_free(reason);
+        networkstatus_consensus_download_failed(0, flavname);
+        return -1;
+      }
+      tor_free(old_consensus);
+      tor_free(new_consensus);
+    } else {
+      if ((r=networkstatus_set_current_consensus(body, flavname, 0))<0) {
+        log_fn(r<-1?LOG_WARN:LOG_INFO, LD_DIR,
+               "Unable to load %s consensus directory downloaded from "
+               "server '%s:%d'. I'll try again soon.",
+               flavname, conn->base_.address, conn->base_.port);
+        tor_free(body); tor_free(headers); tor_free(reason);
+        networkstatus_consensus_download_failed(0, flavname);
+        return -1;
+      }
     }
     /* launches router downloads as needed */
     routers_update_all_from_networkstatus(now, 3);
