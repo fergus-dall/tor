@@ -1,5 +1,6 @@
 #include "container.h"
 #include "diff.h"
+#include "siphash.h"
 #include "util.h"
 
 /** Create an ed-style diff from <b>old</b> to <b>new</b> and return
@@ -106,12 +107,26 @@ smartlist_longest_common_subsequence(smartlist_t *first, smartlist_t *second) {
   int max = (smartlist_len(first) + smartlist_len(second))/2 + 1;
   int *forward_v = tor_malloc_zero(max*2 * sizeof(int));
   int *reverse_v = tor_malloc_zero(max*2 * sizeof(int));
+
+  /* Take hashes of all the strings so we don't have to do comparisons
+   * with strcmp */
+  uint64_t *f_hash = tor_malloc_zero(smartlist_len(first) * 8);
+  uint64_t *s_hash = tor_malloc_zero(smartlist_len(second) * 8);
+  SMARTLIST_FOREACH(first, char *, str,
+                    f_hash[str_sl_idx] = siphash24g(str, strlen(str)));
+  SMARTLIST_FOREACH(second, char *, str,
+                    s_hash[str_sl_idx] = siphash24g(str, strlen(str)));
+
   smartlist_t *result = smartlist_new();
   smartlist_longest_common_subsequence_impl(first, 0, smartlist_len(first),
                                             second, 0, smartlist_len(second),
-                                            forward_v, reverse_v, result);
+                                            forward_v, reverse_v,
+                                            f_hash, s_hash, result);
+
   tor_free(forward_v);
   tor_free(reverse_v);
+  tor_free(f_hash);
+  tor_free(s_hash);
   return result;
 }
 
@@ -121,7 +136,8 @@ void
 smartlist_longest_common_subsequence_impl(
   smartlist_t *first, int first_start, int first_end,
   smartlist_t *second, int second_start, int second_end,
-  int *forward_v, int *reverse_v, smartlist_t *result)
+  int *forward_v, int *reverse_v,
+  uint64_t *f_hash, uint64_t *s_hash, smartlist_t *result)
 {
   if (first_end - first_start <= 0 || second_end - second_start <= 0)
     return;
@@ -153,8 +169,7 @@ smartlist_longest_common_subsequence_impl(
       y = x-diagonal;
       u = x;
       v = y;
-      while (u < first_end && v < second_end &&
-             !strcmp(smartlist_get(first, u), smartlist_get(second, v))) {
+      while (u < first_end && v < second_end && f_hash[u] == s_hash[v]) {
         u++;
         v++;
       }
@@ -180,7 +195,7 @@ smartlist_longest_common_subsequence_impl(
       x = u;
       y = v;
       while (x > first_start && y > second_start &&
-             !strcmp(smartlist_get(first, x-1), smartlist_get(second, y-1))) {
+             f_hash[x-1] == s_hash[y-1]) {
         x--;
         y--;
       }
@@ -199,13 +214,15 @@ smartlist_longest_common_subsequence_impl(
   if (diff_size > 2 || (delta%2 == 0 && diff_size == 2)) {
     smartlist_longest_common_subsequence_impl(first, first_start, x,
                                               second, second_start, y,
-                                              forward_v, reverse_v, result);
+                                              forward_v, reverse_v,
+                                              f_hash, s_hash, result);
     for (i = x; i < u; i++) {
       smartlist_add(result, smartlist_get(first, i));
     }
     smartlist_longest_common_subsequence_impl(first, u, first_end,
                                               second, v, second_end,
-                                              forward_v, reverse_v, result);
+                                              forward_v, reverse_v,
+                                              f_hash, s_hash, result);
   } else if (first_end - first_start < second_end - second_start) {
     for (i = first_start; i < first_end; i++) {
       smartlist_add(result, smartlist_get(first, i));
