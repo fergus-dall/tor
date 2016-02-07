@@ -102,6 +102,7 @@ diff_add_next_command(smartlist_t *diff_sl, int remove_start, int remove_end,
  * NULL-terminated strings and return the result as a new
  * smartlist.
  **/
+
 smartlist_t *
 smartlist_longest_common_subsequence(smartlist_t *first, smartlist_t *second) {
   int max = (smartlist_len(first) + smartlist_len(second))/2 + 1;
@@ -117,11 +118,22 @@ smartlist_longest_common_subsequence(smartlist_t *first, smartlist_t *second) {
   SMARTLIST_FOREACH(second, char *, str,
                     s_hash[str_sl_idx] = siphash24g(str, strlen(str)));
 
+  /** Use the TOO_EXPENSIVE heuristic from GNU difftools, which gives
+   * up after an edit distance of the approximate square root of the
+   * total file lengths */
+  int too_expensive = 1;
+  int total_length = smartlist_len(first) + smartlist_len(second);
+  for (; total_length != 0; total_length >>= 2)
+    too_expensive <<= 1;
+  if (too_expensive < 256)
+    too_expensive = 256;
+
   smartlist_t *result = smartlist_new();
   smartlist_longest_common_subsequence_impl(first, 0, smartlist_len(first),
                                             second, 0, smartlist_len(second),
                                             forward_v, reverse_v,
-                                            f_hash, s_hash, result);
+                                            too_expensive, f_hash, s_hash,
+                                            result);
 
   tor_free(forward_v);
   tor_free(reverse_v);
@@ -136,7 +148,7 @@ void
 smartlist_longest_common_subsequence_impl(
   smartlist_t *first, int first_start, int first_end,
   smartlist_t *second, int second_start, int second_end,
-  int *forward_v, int *reverse_v,
+  int *forward_v, int *reverse_v, int too_expensive,
   uint64_t *f_hash, uint64_t *s_hash, smartlist_t *result)
 {
   if (first_end - first_start <= 0 || second_end - second_start <= 0)
@@ -146,6 +158,8 @@ smartlist_longest_common_subsequence_impl(
   int delta_end = first_end - second_end;
   int delta = delta_end - delta_start;
   int max = (first_end - first_start + second_end - second_start)/2 + 1;
+  if (max > too_expensive)
+    max = too_expensive;
   int center_forward = max - delta_start;
   int center_reverse = max - delta_end;
   forward_v[max+1] = first_start;
@@ -154,8 +168,8 @@ smartlist_longest_common_subsequence_impl(
   int x, y; /* Start of the middle snake */
   int u, v; /* End of the middle snake */
   int found_middle_snake = 0;
+  int diagonal;
   for (diff_size = 0; diff_size <= max && !found_middle_snake; diff_size++) {
-    int diagonal;
     for (diagonal = delta_start - diff_size;
          diagonal <= delta_start + diff_size && !found_middle_snake;
          diagonal += 2) {
@@ -208,21 +222,62 @@ smartlist_longest_common_subsequence_impl(
       }
     }
   }
-  tor_assert(found_middle_snake);
+  diff_size--;
+
+  if (!found_middle_snake) {
+    int f_best_x = 0;
+    int f_best_y = 0;
+    for (diagonal = delta_start - diff_size;
+         diagonal <= delta_start + diff_size; diagonal += 2) {
+      x = forward_v[center_forward+diagonal];
+      y = x-diagonal;
+      if (x + y > f_best_x + f_best_y) {
+        f_best_x = x;
+        f_best_y = y;
+      }
+    }
+
+    int r_best_x = first_end;
+    int r_best_y = second_end;
+    for (diagonal = delta_end - diff_size;
+         diagonal <= delta_end + diff_size; diagonal += 2) {
+      x = reverse_v[center_reverse+diagonal];
+      y = x-diagonal;
+      if (x + y < r_best_x + r_best_y) {
+        r_best_x = x;
+        r_best_y = y;
+      }
+    }
+
+    if ((f_best_x - first_start) + (f_best_y - second_start) >
+        (first_end - r_best_x) + (second_end - r_best_y)) {
+      x = f_best_x;
+      y = f_best_y;
+      u = x;
+      v = y;
+    } else {
+      x = r_best_x;
+      y = r_best_y;
+      u = x;
+      v = y;
+    }
+  }
 
   int i;
-  if (diff_size > 2 || (delta%2 == 0 && diff_size == 2)) {
+  if (diff_size > 1 || (delta%2 == 0 && diff_size == 1)) {
     smartlist_longest_common_subsequence_impl(first, first_start, x,
                                               second, second_start, y,
                                               forward_v, reverse_v,
-                                              f_hash, s_hash, result);
+                                              too_expensive, f_hash, s_hash,
+                                              result);
     for (i = x; i < u; i++) {
       smartlist_add(result, smartlist_get(first, i));
     }
     smartlist_longest_common_subsequence_impl(first, u, first_end,
                                               second, v, second_end,
                                               forward_v, reverse_v,
-                                              f_hash, s_hash, result);
+                                              too_expensive, f_hash, s_hash,
+                                              result);
   } else if (first_end - first_start < second_end - second_start) {
     for (i = first_start; i < first_end; i++) {
       smartlist_add(result, smartlist_get(first, i));

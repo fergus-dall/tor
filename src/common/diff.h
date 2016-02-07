@@ -8,7 +8,7 @@ smartlist_t *smartlist_longest_common_subsequence(smartlist_t *first,
 void smartlist_longest_common_subsequence_impl(
   smartlist_t *first, int first_start, int first_end,
   smartlist_t *second, int second_start, int second_end,
-  int *fowards_v, int *reverse_v,
+  int *fowards_v, int *reverse_v, int too_expensive,
   uint64_t *f_hash, uint64_t *s_hash, smartlist_t *result);
 void diff_add_next_command(smartlist_t *diff_sl, int remove_start,
                            int remove_end, smartlist_t *new_sl,
