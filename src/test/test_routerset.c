@@ -965,11 +965,11 @@ NS(test_main)(void *arg)
 
   NS_MOCK(compare_tor_addr_to_addr_policy);
 
-  contains = routerset_contains(set, addr, 0, addr2, 0, NULL, NULL, 0);
+  contains = routerset_contains(set, addr, 80, addr2, 80, NULL, NULL, 0);
   tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 1);
   tt_int_op(contains, OP_EQ, 3);
 
-  contains = routerset_contains(set, addr2, 0, addr, 0, NULL, NULL, 0);
+  contains = routerset_contains(set, addr2, 80, addr, 80, NULL, NULL, 0);
   tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 2);
   tt_int_op(contains, OP_EQ, 3);
 
@@ -1016,11 +1016,11 @@ NS(test_main)(void *arg)
 
   NS_MOCK(compare_tor_addr_to_addr_policy);
 
-  contains = routerset_contains(set, addr, 0, addr2, 0, NULL, NULL, 0);
+  contains = routerset_contains(set, addr, 80, addr2, 80, NULL, NULL, 0);
   tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 2);
   tt_int_op(contains, OP_EQ, 0);
 
-  contains = routerset_contains(set, addr2, 0, addr, 0, NULL, NULL, 0);
+  contains = routerset_contains(set, addr2, 80, addr, 80, NULL, NULL, 0);
   tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 4);
   tt_int_op(contains, OP_EQ, 0);
 
@@ -1113,11 +1113,11 @@ NS(test_main)(void *arg)
 
   NS_MOCK(compare_tor_addr_to_addr_policy);
 
-  contains = routerset_contains(set, addr, 0, addr2, 0, NULL, NULL, 0);
+  contains = routerset_contains(set, addr, 80, addr2, 80, NULL, NULL, 0);
   tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 1);
   tt_int_op(contains, OP_EQ, 3);
 
-  contains = routerset_contains(set, addr2, 0, addr, 0, NULL, NULL, 0);
+  contains = routerset_contains(set, addr2, 80, addr, 80, NULL, NULL, 0);
   tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 3);
   tt_int_op(contains, OP_EQ, 3);
 
@@ -1165,11 +1165,11 @@ NS(test_main)(void *arg)
 
   NS_MOCK(compare_tor_addr_to_addr_policy);
 
-  contains = routerset_contains(set, addr, 0, NULL, 0, NULL, NULL, 0);
+  contains = routerset_contains(set, addr, 80, NULL, 0, NULL, NULL, 0);
   tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 1);
   tt_int_op(contains, OP_EQ, 3);
 
-  contains = routerset_contains(set, NULL, 0, addr, 0, NULL, NULL, 0);
+  contains = routerset_contains(set, NULL, 0, addr, 80, NULL, NULL, 0);
   tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 2);
   tt_int_op(contains, OP_EQ, 3);
 
@@ -1212,11 +1212,11 @@ NS(test_main)(void *arg)
 
   NS_MOCK(compare_tor_addr_to_addr_policy);
 
-  contains = routerset_contains(set, addr, 0, NULL, 0, NULL, NULL, 0);
+  contains = routerset_contains(set, addr, 80, NULL, 0, NULL, NULL, 0);
   tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 1);
   tt_int_op(contains, OP_EQ, 0);
 
-  contains = routerset_contains(set, NULL, 0, addr, 0, NULL, NULL, 0);
+  contains = routerset_contains(set, NULL, 0, addr, 80, NULL, NULL, 0);
   tt_int_op(CALLED(compare_tor_addr_to_addr_policy), OP_EQ, 2);
   tt_int_op(contains, OP_EQ, 0);
 
@@ -1262,7 +1262,7 @@ NS(test_main)(void *arg)
 
   set->countries = bitarray_init_zero(1);
   bitarray_set(set->countries, 1);
-  contains = routerset_contains(set, MOCK_TOR_ADDR_PTR, 0,
+  contains = routerset_contains(set, MOCK_TOR_ADDR_PTR, 80,
                                 NULL, 0, NULL, NULL, -1);
   routerset_free(set);
 
@@ -1322,7 +1322,7 @@ NS(test_main)(void *arg)
   set->n_countries = 2;
   set->countries = bitarray_init_zero(1);
   bitarray_set(set->countries, 1);
-  contains = routerset_contains(set, MOCK_TOR_ADDR_PTR, 0,
+  contains = routerset_contains(set, MOCK_TOR_ADDR_PTR, 80,
                                 NULL, 0, NULL, NULL, -1);
   routerset_free(set);
 
