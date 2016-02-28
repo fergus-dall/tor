@@ -196,6 +196,12 @@ routerset_len(const routerset_t *set)
  * single router is more specific than an address range of routers, which is
  * more specific in turn than a country code.
  *
+ * If either an IP address is the null address or it's corresponding
+ * port is zero, treat that component as unknown and only return
+ * non-zero values if the node is definitley included in the
+ * routerset. However, if both components are null/zero, treat that
+ * address as absent.
+ *
  * (If country is -1, then we take the country
  * from addr.) */
 STATIC int
@@ -211,10 +217,12 @@ routerset_contains(const routerset_t *set, const tor_addr_t *addr,
     return 4;
   if (id_digest && digestmap_get(set->digests, id_digest))
     return 4;
-  if (addr && compare_tor_addr_to_addr_policy(addr, orport, set->policies)
+  if (addr && (!tor_addr_is_null(addr) || orport)
+      && compare_tor_addr_to_addr_policy(addr, orport, set->policies)
       == ADDR_POLICY_REJECTED)
     return 3;
-  if (ipv6_addr && compare_tor_addr_to_addr_policy(
+  if (ipv6_addr && (!tor_addr_is_null(ipv6_addr) || ipv6_orport)
+      && compare_tor_addr_to_addr_policy(
       ipv6_addr, ipv6_orport, set->policies) == ADDR_POLICY_REJECTED)
     return 3;
   if (set->countries) {
@@ -291,9 +299,9 @@ routerset_contains_router(const routerset_t *set, const routerinfo_t *ri,
   tor_addr_from_ipv4h(&addr, ri->addr);
   ipv6_addr = &(ri->ipv6_addr);
   return routerset_contains(set,
-                            tor_addr_is_null(&addr) ? NULL : &addr,
+                            &addr,
                             ri->or_port,
-                            tor_addr_is_null(ipv6_addr) ? NULL : ipv6_addr,
+                            ipv6_addr,
                             ri->ipv6_orport,
                             ri->nickname,
                             ri->cache_info.identity_digest,
@@ -312,9 +320,9 @@ routerset_contains_routerstatus(const routerset_t *set,
   tor_addr_from_ipv4h(&addr, rs->addr);
   ipv6_addr = &(rs->ipv6_addr);
   return routerset_contains(set,
-                            tor_addr_is_null(&addr) ? NULL : &addr,
+                            &addr,
                             rs->or_port,
-                            tor_addr_is_null(ipv6_addr) ? NULL : ipv6_addr,
+                            ipv6_addr,
                             rs->ipv6_orport,
                             rs->nickname,
                             rs->identity_digest,
